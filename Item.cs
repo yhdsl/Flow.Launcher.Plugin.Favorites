@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows.Input;
-using NPinyin;
 
 namespace Flow.Launcher.Plugin.Favorites
 {
@@ -13,9 +12,6 @@ namespace Flow.Launcher.Plugin.Favorites
     {
         public string Name { get; set; }
         public string Value { get; set; }
-
-        public string PinyinFull { get; set; }
-        public string PinyinInitials { get; set; }
 
         string _iconPath;
         
@@ -50,50 +46,7 @@ namespace Flow.Launcher.Plugin.Favorites
                 return _iconPath;
             }
         }
-
-        public static void InitPinyin(Item item)
-        {
-            if (item == null || string.IsNullOrEmpty(item.Name))
-                return;
-
-            try
-            {
-                item.PinyinFull = Pinyin.GetPinyin(item.Name)
-                    .Replace(" ", "")
-                    .ToLower();
-
-                item.PinyinInitials = GetInitials(item.Name);
-            }
-            catch
-            {
-                item.PinyinFull = "";
-                item.PinyinInitials = "";
-            }
-        }
-
-        static string GetInitials(string text)
-        {
-            string result = "";
-
-            foreach (char c in text)
-            {
-                try
-                {
-                    string py = Pinyin.GetPinyin(c.ToString());
-                    if (!string.IsNullOrEmpty(py))
-                        result += py[0];
-                    else
-                        result += c;
-                }
-                catch
-                {
-                    result += c;
-                }
-            }
-
-            return result.ToLower();
-        }
-
+        
         public void Execute(bool asAdmin = false)
         {
             string value = Value;
@@ -181,15 +134,13 @@ namespace Flow.Launcher.Plugin.Favorites
                     Value = line.Substring(line.IndexOf("=") + 1).Trim()
                 };
 
-                InitPinyin(item);
-
                 ret.Add(item);
             }
             
             return ret;
         }
 
-        static Dictionary<string, string[]> FuzzyMap = new()
+        static Dictionary<string, string[]> fuzzyMap = new Dictionary<string, string[]>()
         {
             { "zh", new[] { "z" } },
             { "ch", new[] { "c" } },
@@ -205,21 +156,39 @@ namespace Flow.Launcher.Plugin.Favorites
             { "uang", new[] { "uan" } },
         };
 
-        static bool FuzzyMatch(string text, string input)
+        static string NormalizeFuzzy(string input)
         {
-            if (text.Contains(input))
-                return true;
+            if (string.IsNullOrEmpty(input))
+                return "";
 
-            foreach (var kv in FuzzyMap)
+            input = input.ToLower();
+
+            foreach (var kv in fuzzyMap)
             {
-                foreach (var alt in kv.Value)
+                foreach (var v in kv.Value)
                 {
-                    if (text.Replace(kv.Key, alt).Contains(input))
-                        return true;
+                    input = input.Replace(kv.Key, v);
                 }
             }
 
-            return false;
+            return input;
+        }
+
+        static string GetPinyinInitials(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+                return "";
+
+            input = input.ToLower();
+
+            string result = "";
+
+            foreach (string part in input.Split(new[] { ' ', '_', '-', '.' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                result += part[0];
+            }
+
+            return result;
         }
 
         public static List<Item> Filter(List<Item> items, string value)
@@ -231,6 +200,7 @@ namespace Flow.Launcher.Plugin.Favorites
 
             string[] searches = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             string valueLower = value.ToLower();
+            string fuzzySearch = NormalizeFuzzy(valueLower);
 
             if (value.Length == 1)
             {
@@ -260,18 +230,7 @@ namespace Flow.Launcher.Plugin.Favorites
 
                     foreach (string search in searches)
                     {
-                        string searchLower = search.ToLower();
-
-                        string nameLower = item.Name.ToLower();
-                        string valueLowerItem = item.Value.ToLower();
-
-                        string namePinyin = NPinyin.Pinyin.GetPinyin(item.Name).Replace(" ", "").ToLower();
-                        string valuePinyin = NPinyin.Pinyin.GetPinyin(item.Value).Replace(" ", "").ToLower();
-
-                        if (!nameLower.Contains(searchLower) &&
-                            !valueLowerItem.Contains(searchLower) &&
-                            !namePinyin.Contains(searchLower) &&
-                            !valuePinyin.Contains(searchLower))
+                        if (!item.Name.ToLower().Contains(search.ToLower()) && !item.Value.ToLower().Contains(search.ToLower()))
                         {
                             notFound = true;
                             break;
@@ -283,6 +242,23 @@ namespace Flow.Launcher.Plugin.Favorites
                     else
                         if (!ret.Contains(item))
                             ret.Add(item);
+                }
+            }
+
+            foreach (Item item in items)
+            {
+                if (ret.Contains(item))
+                    continue;
+
+                string nameLower = item.Name.ToLower();
+
+                string initials = GetPinyinInitials(nameLower);
+
+                string fuzzyName = NormalizeFuzzy(nameLower);
+
+                if (initials.Contains(valueLower) || fuzzyName.Contains(fuzzySearch))
+                {
+                    ret.Add(item);
                 }
             }
 
@@ -304,24 +280,18 @@ namespace Flow.Launcher.Plugin.Favorites
 
             // name starts with
             foreach (Item item in items)
-                if (item.Name.ToLower().StartsWith(valueLower) ||
-                    NPinyin.Pinyin.GetPinyin(item.Name).Replace(" ", "").ToLower().StartsWith(valueLower))
-                    if (!ret.Contains(item))
-                        ret.Add(item);
+                if (item.Name.ToLower().StartsWith(valueLower) && !ret.Contains(item))
+                    ret.Add(item);
 
             // name contains
             foreach (Item item in items)
-                if (item.Name.ToLower().Contains(valueLower) ||
-                    NPinyin.Pinyin.GetPinyin(item.Name).Replace(" ", "").ToLower().Contains(valueLower))
-                    if (!ret.Contains(item))
-                        ret.Add(item);
+                if (item.Name.ToLower().Contains(valueLower) && !ret.Contains(item))
+                    ret.Add(item);
 
             // value contains
             foreach (Item item in items)
-                if (item.Value.ToLower().Contains(valueLower) ||
-                    NPinyin.Pinyin.GetPinyin(item.Value).Replace(" ", "").ToLower().Contains(valueLower))
-                    if (!ret.Contains(item))
-                        ret.Add(item);
+                if (item.Value.ToLower().Contains(valueLower) && !ret.Contains(item))
+                    ret.Add(item);
 
             return ret;
         }
