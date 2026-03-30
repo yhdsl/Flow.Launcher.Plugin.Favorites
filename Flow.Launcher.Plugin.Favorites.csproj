@@ -38,6 +38,10 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<PackageReference Include="NPinyin.Core" Version="3.0.0" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<None Update="Icons\CommandLine.ico">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</None>
